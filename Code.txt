@@ -1,0 +1,367 @@
+from PIL import Image
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+from collections import Counter
+import seaborn as sns
+from sklearn.tree import plot_tree
+from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import GaussianNB
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix
+
+
+
+
+# ----------------------------------- load Images ,resized & flattened into a 1D --------------------------------
+def load_and_preprocess_images (base_path, size=(32, 32), grayscale=False):
+    # Each image is now exactly 32 pixels wide × 32 pixels high.
+    X, y = [], []
+    classes = sorted(os.listdir(base_path))  # Get class folders
+    valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp')  # Supported image formats
+
+    # Step 1: Load and preprocess images
+    for class_idx, class_name in enumerate(classes):
+        class_path = os.path.join(base_path, class_name)
+        if os.path.isdir(class_path):
+            for filename in os.listdir(class_path):
+                if filename.lower().endswith(valid_extensions):
+                    img_path = os.path.join(class_path, filename)
+                    try:
+                        img = Image.open(img_path).resize(size) # Opens the image and resizes it to size
+                        # If image has palette mode (P), convert to RGBA first
+                        if img.mode == 'P':
+                            img = img.convert('RGBA')
+
+                        # Then continue as before:
+                        if grayscale:
+                            img = img.convert('L')
+                        else:
+                            img = img.convert('RGB')
+                            # 1D array of 32×32 = 1024 numbers
+                        img_array = np.array(img).flatten() / 255.0  # Flatten and normalize
+                        X.append(img_array) # Save the feature vector
+                        y.append(class_idx) # Save the corresponding label
+                    except Exception as e:
+                        print(f"Warning: Skipped {img_path} due to error: {e}")
+
+    # Convert to NumPy arrays
+    X = np.array(X)
+    y = np.array(y)
+
+    # Check class distribution
+    class_counts = Counter(y)
+    # Print how many images per class.
+    print("Class distribution:", {classes[idx]: count for idx, count in class_counts.items()})
+
+    # Step 3: Split dataset into train (80%) and test (20%)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    # Print shapes
+    print(f"Training set: {X_train.shape}, Test set: {X_test.shape}")
+    print(f"Feature vector size: {X_train.shape[1]} (per image)")
+    print(f"Classes: {classes}")
+
+    # Step 4: Save preprocessed data
+    np.save('X_train.npy', X_train)
+    np.save('y_train.npy', y_train)
+    np.save('X_test.npy', X_test)
+    np.save('y_test.npy', y_test)
+    print("Preprocessed data saved as .npy files.")
+
+    return X_train, X_test, y_train, y_test, classes
+
+# ------------------------------------  Naive Bayes Classifier -------------------------------------------------
+def Naive_Bayes (X_train, y_train, X_test, y_test, class_names):
+    # Initialize Gaussian Naive Bayes
+    nb_model = GaussianNB()
+
+
+    nb_model.fit(X_train, y_train)
+
+    # make prediction
+    y_pred= nb_model.predict(X_test)
+
+    #  Evaluate performance
+    accuracy = accuracy_score(y_test, y_pred)
+    f1= f1_score(y_test, y_pred, average='weighted')
+    precision= precision_score(y_test, y_pred, average='weighted')
+    recall= recall_score(y_test, y_pred, average='weighted')
+    conf_matrix = confusion_matrix(y_test, y_pred)
+
+
+
+    # Print the result
+    print("Naive Bayes Performance:")
+    print(f"  Accuracy: {accuracy:.4f}")
+    print(f"  Precision: {precision:.4f}")
+    print(f"  Recall: {recall:.4f}")
+    print(f"  F1-Score: {f1:.4f}")
+
+    # Plot confusion matrix
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, yticklabels=class_names)
+    plt.gca().xaxis.set_label_position('top')
+    plt.gca().xaxis.tick_top()
+    plt.gca().figure.subplots_adjust(bottom=0.2)
+    plt.title('Confusion Matrix for Naive Bayes')
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.show()
+
+    fig, axes = plt.subplots(5, 10, figsize=(20, 12))
+    axes = axes.ravel()
+
+    for i in np.arange(50):  # Ensure we don't exceed available images
+        img = X_test[i].reshape(32, 32, 3)  # Reshape to 32x32 for RGB
+        axes[i].imshow(img,aspect='auto')
+        axes[i].set_title(f"\n\nTrue: {class_names[y_test[i]]}, Pred: {class_names[y_pred[i]]} \n",
+        fontsize =6)
+        axes[i].axis('off')
+
+    plt.tight_layout(pad=3.0)
+    plt.show()
+
+
+    # # Save the model
+    # with open('naive_bayes_model.pkl', 'wb') as f:
+    #     pickle.dump(nb_model, f)
+    # print("Naive Bayes model saved as 'naive_bayes_model.pkl'.")
+
+
+    return (accuracy, precision, recall, f1)
+
+# ------------------------------------ Decision Tree models ----------------------------------------------------
+
+def Decision_Tree (X_train, y_train, X_test, y_test, class_names):
+    # Initialize the Decision Tree model with a range of parameters for max_depth
+    max_depth_values = [3,5]
+    best_model = None
+    best_accuracy = 0
+    best_depth = 0
+
+    # Loop through different max_depth values and train the Decision Tree model
+    for max_depth in max_depth_values:
+        dtree = DecisionTreeClassifier(criterion='entropy',max_depth=max_depth, random_state=42)
+        dtree.fit(X_train, y_train)
+
+        # Make predictions
+        y_pred = dtree.predict(X_test)
+
+        # Calculate evaluation metrics
+        accuracy = accuracy_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred, average='weighted')
+        precision = precision_score(y_test, y_pred, average='weighted')
+        recall = recall_score(y_test, y_pred, average='weighted')
+
+
+        print(
+            f"Max Depth={max_depth} --> \t Accuracy: {accuracy:.4f}\t F1 Score: {f1:.4f}\t Precision: {precision:.4f}\t Recall: {recall:.4f}\n")
+
+        # Save the best model
+        if accuracy > best_accuracy:
+            best_accuracy = accuracy
+            best_depth = max_depth
+            best_model = dtree
+
+    # Final best model evaluation
+    print(f"Best model is with Max Depth={best_depth} and accuracy={best_accuracy:.4f}")
+
+    # Confusion Matrix
+    y_pred_best = best_model.predict(X_test)
+    conf_matrix = confusion_matrix(y_test, y_pred_best)
+
+    # Plot confusion matrix
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, yticklabels=class_names)
+    plt.gca().xaxis.set_label_position('top')
+    plt.gca().xaxis.tick_top()
+    plt.gca().figure.subplots_adjust(bottom=0.2)
+    plt.title(f"Confusion Matrix for Decision Tree (Max Depth={best_depth})")
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.show()
+
+    # Visualize Test Images
+    fig, axes = plt.subplots(5, 10, figsize=(20, 12))
+    axes = axes.ravel()
+    for i in np.arange(50):  # Ensure we don't exceed available images
+        img = X_test[i].reshape(32, 32, 3)  # Reshape to 32x32 for RGB
+        axes[i].imshow(img,aspect='auto')
+        axes[i].set_title(f"\n\nTrue: {class_names[y_test[i]]}, Pred: {class_names[y_pred[i]]} \n",
+        fontsize =6)
+        axes[i].axis('off')
+    plt.tight_layout(pad=3.0)
+    plt.show()
+
+    # Visualize decision paths
+    # This shows which pixel values the tree is using to make decisions.
+    plt.figure(figsize=(20, 10))
+    plot_tree(dtree, feature_names=[f'pixel_{i}' for i in range(X_train.shape[1])],
+              class_names=class_names, filled=True,rounded=True, max_depth=best_depth)  # limit depth for readability
+    plt.title(f"Decision Tree Visualization (Max Depth={best_depth})")
+    plt.show()
+
+    return (best_accuracy, precision, recall, f1)
+# --------------------------------------- MLP with 1 Hidden Layer -----------------------------------------
+def MLP_1Layer (X_train, y_train, X_test, y_test, class_names):
+    # Train MLP with 1 hidden layer
+    mlp_1layer = MLPClassifier(hidden_layer_sizes=(100,), activation='relu',solver='adam',max_iter=300, random_state=42) #One hidden layer with 100 neurons
+    mlp_1layer.fit(X_train, y_train)
+
+    # Predict and evaluate for 1 hidden layer
+    y_pred_1layer = mlp_1layer.predict(X_test)
+    accuracy_1layer = accuracy_score(y_test, y_pred_1layer)
+    f1_1layer = f1_score(y_test, y_pred_1layer, average='weighted')
+    precision_1layer = precision_score(y_test, y_pred_1layer, average='weighted')
+    recall_1layer = recall_score(y_test, y_pred_1layer, average='weighted')
+    conf_matrix_1layer = confusion_matrix(y_test, y_pred_1layer)
+
+    print("MLP (1 Hidden Layer) Performance:")
+    print(f"  Accuracy: {accuracy_1layer:.4f}")
+    print(f"  Precision: {precision_1layer:.4f}")
+    print(f"  Recall: {recall_1layer:.4f}")
+    print(f"  F1-Score: {f1_1layer:.4f}")
+
+    # Visualize confusion matrix for 2 hidden layers
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(conf_matrix_1layer, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, yticklabels=class_names)
+    plt.gca().xaxis.set_label_position('top')
+    plt.gca().xaxis.tick_top()
+    plt.gca().figure.subplots_adjust(bottom=0.2)
+    plt.title('Confusion Matrix for MLP (1 Hidden Layers)')
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.show()
+
+
+    return (accuracy_1layer,f1_1layer, precision_1layer, recall_1layer)
+
+#---------------------------------- MLP with 2 Hidden layer --------------------------------------------------
+def MLP_2Layer(X_train, y_train, X_test, y_test, class_names):
+    # Train MLP with 2 hidden layers
+    # means two hidden layers: the first with 100 neurons, the second with 50.
+    mlp_2layer = MLPClassifier(hidden_layer_sizes=(100, 50), activation='relu', solver='adam', max_iter=300,
+                               random_state=42)
+    mlp_2layer.fit(X_train, y_train)
+
+    # Predict and evaluate for 2 hidden layers
+    y_pred_2layer = mlp_2layer.predict(X_test)
+    accuracy_2layer = accuracy_score(y_test, y_pred_2layer)
+    f1_2layer = f1_score(y_test, y_pred_2layer, average='weighted')
+    precision_2layer = precision_score(y_test, y_pred_2layer, average='weighted')
+    recall_2layer = recall_score(y_test, y_pred_2layer, average='weighted')
+    conf_matrix_2layer = confusion_matrix(y_test, y_pred_2layer)
+
+    print("MLP (2 Hidden Layers) Performance:")
+    print(f"  Accuracy: {accuracy_2layer:.4f}")
+    print(f"  Precision: {precision_2layer:.4f}")
+    print(f"  Recall: {recall_2layer:.4f}")
+    print(f"  F1-Score: {f1_2layer:.4f}")
+
+    # Visualize confusion matrix for 2 hidden layers
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(conf_matrix_2layer, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, yticklabels=class_names)
+    plt.gca().xaxis.set_label_position('top')
+    plt.gca().xaxis.tick_top()
+    plt.gca().figure.subplots_adjust(bottom=0.2)
+    plt.title('Confusion Matrix for MLP (2 Hidden Layers)')
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.show()
+
+    # Visualize Test Images
+    fig, axes = plt.subplots(5, 10, figsize=(20, 12))
+    axes = axes.ravel()
+    for i in np.arange(50):  # Ensure we don't exceed available images
+        img = X_test[i].reshape(32, 32, 3)  # Reshape to 32x32 for RGB
+        axes[i].imshow(img, aspect='auto')
+        axes[i].set_title(f"\n\nTrue: {class_names[y_test[i]]}, Pred: {class_names[y_pred_2layer[i]]} \n",
+                          fontsize=6)
+        axes[i].axis('off')
+    plt.tight_layout(pad=3.0)
+    plt.show()
+
+    return (accuracy_2layer,f1_2layer, precision_2layer, recall_2layer)
+
+# --------------------------------------- Comparative and Analysis --------------------------------------------
+def compare_models_performance (nb, dt, mlp1,mlp2):
+    model_names = ['Naive Bayes', 'Decision Tree', 'MLP_1_layer', 'MLP_2_layers']
+    accuracy = [nb[0], dt[0], mlp1[0], mlp2[0]]
+    precision = [nb[1], dt[1], mlp1[2], mlp2[2]]
+    recall = [nb[2], dt[2], mlp1[3], mlp2[3]]
+    f1 = [nb[3], dt[3], mlp1[1], mlp2[1]]
+
+    bar_width = 0.2
+    index = np.arange(len(model_names))
+
+    # Create bar plot
+    plt.figure(figsize=(10, 6))
+    plt.bar(index, accuracy, bar_width, label='Accuracy', color='green')
+    plt.bar(index + bar_width, precision, bar_width, label='Precision', color='dodgerblue')
+    plt.bar(index + 2 * bar_width, recall, bar_width, label='Recall', color='gold')
+    plt.bar(index + 3 * bar_width, f1, bar_width, label='F1-Score', color='orangered')
+
+    # Customize plot
+    #plt.xlabel('Models',fontsize=12)
+    plt.ylabel('Score',fontsize=12)
+    plt.title('Model Performance Comparison',fontsize=14, pad=15)
+    plt.xticks(index + 1.5 * bar_width, model_names)
+    plt.legend(loc='lower center', bbox_to_anchor=(0.5, -0.15), ncol=4, frameon=False)
+    plt.ylim(0, 1.1)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.gca().set_axisbelow(True)
+
+    plt.tight_layout()
+    plt.show()
+
+
+if __name__ == "__main__":
+    print("\t\t\t\t\t ***************************************************************************")
+    print("\t\t\t\t\t ------------------------ Noura Khdour 1212072 -----------------------------")
+    print("\t\t\t\t\t ----------- ENCS3340:Image Classification Using Machine Learning ---------- ")
+    print("\t\t\t\t\t ***************************************************************************")
+    #
+    base_path = r'C:\Users\SS\PycharmProjects\AI_Project2\Data_Set'
+    #
+    X_train, X_test, y_train, y_test, classes = load_and_preprocess_images(
+           base_path, size=(32, 32), grayscale=False)
+    # Load preprocessed data
+    X_train = np.load('X_train.npy')
+    y_train = np.load('y_train.npy')
+    X_test = np.load('X_test.npy')
+    y_test = np.load('y_test.npy')
+    class_names = sorted(os.listdir(r'C:\Users\SS\PycharmProjects\AI_Project2\Data_Set'))
+    while True:
+        print("\n1: Naive Bayes")
+        print("2: Decision Tree")
+        print("3: MLP with(1 Hidden Layer)")
+        print("4: MLP with(2 Hidden Layer)")
+        print("5: Compare Models Performance")
+        print("6: Exit")
+        choice = input("Please choose a number: ")
+
+        if choice == "1":
+            nb_metrics = Naive_Bayes(X_train, y_train, X_test, y_test, class_names)
+
+        elif choice == "2":
+            dt_metrics = Decision_Tree(X_train, y_train, X_test, y_test, class_names)
+
+        elif choice == "3":
+            mlp1_metrics = MLP_1Layer (X_train, y_train, X_test, y_test, class_names)
+
+        elif choice == "4":
+            mlp2_metrics = MLP_2Layer(X_train, y_train, X_test, y_test, class_names)
+
+        elif choice == "5":
+            compare_models_performance(nb_metrics, dt_metrics, mlp1_metrics, mlp2_metrics)
+
+        elif choice == "6":
+            print("Exiting...")
+            break
+        else:
+            print("Not a valid choice.")
+
+
+
