@@ -10,4 +10,4 @@ The models to be implemented are:
 2. Decision Tree Classifier – interpretable and suitable for rule-based visual
 classification.
 3. Feedforward Neural Network (MLPClassifier)
-
+The data set was get from open sourse called "kaggle"
